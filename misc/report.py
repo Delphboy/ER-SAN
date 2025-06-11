@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 plt.switch_backend('Agg')
 from matplotlib.figure import Figure
 from pandas import DataFrame, Series, concat
-from pandas.io.json import json_normalize
+from pandas.io.json import _normalize as json_normalize
+# from pandas.io.json import json_normalize
 from typing import IO, Optional, Dict, List, Iterable
 from scipy.stats import ttest_rel
 from six.moves import cPickle as pickle

@@ -12,15 +12,16 @@ from six.moves import cPickle
 import opts
 import models
 from dataloader import *
+from vgcap.dataloader import *
 import eval_utils
 import misc.utils as utils
 from misc.rewards import init_scorer, get_self_critical_reward
 
-try:
-    import tensorboardX as tb
-except ImportError:
-    print("tensorboardX is not installed")
-    tb = None
+import logging
+logging.basicConfig(level=logging.INFO)
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# DEVICE = "cpu"
 
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -41,11 +42,12 @@ def train(opt):
     # Deal with feature things before anything
     opt.use_att = utils.if_use_att(opt.caption_model)
 
-    loader = DataLoader(opt)
+    if opt.caption_model == "vgcap":
+        loader = VgDataLoader(opt)
+    else:
+        loader = DataLoader(opt)
     opt.vocab_size = loader.vocab_size
     opt.seq_length = loader.seq_length
-
-    tb_summary_writer = tb and tb.SummaryWriter(opt.checkpoint_path)
 
     infos = {}
     histories = {}
@@ -70,12 +72,12 @@ def train(opt):
     if opt.load_best_score == 1:
         best_val_score = infos.get('best_val_score', None)
 
-    model = models.setup(opt).cuda()
-    dp_model = torch.nn.DataParallel(model)
+    model = models.setup(opt).to(DEVICE)
+    # model = torch.nn.DataParallel(model)
 
     epoch_done = True
     # Assure in training mode
-    dp_model.train()
+    model.train()
 
     if opt.label_smoothing > 0:
         crit = utils.LabelSmoothing(smoothing=opt.label_smoothing)
@@ -134,30 +136,30 @@ def train(opt):
         start = time.time()
 
         tmp = [data['att_feats'], data['labels'], data['masks'], data['att_masks']]
-        tmp = [_ if _ is None else torch.from_numpy(_).cuda() for _ in tmp]
+        tmp = [_ if _ is None else torch.from_numpy(_).to(DEVICE) for _ in tmp]
         att_feats, labels, masks, att_masks = tmp
         sg_data = {key: data['sg_data'][key] if data['sg_data'][key] is None \
-            else torch.from_numpy(data['sg_data'][key]).cuda() for key in data['sg_data']}
+            else torch.from_numpy(data['sg_data'][key]).to(DEVICE) for key in data['sg_data']}
 
         if opt.use_box:
-            boxes = data['boxes'] if data['boxes'] is None else torch.from_numpy(data['boxes']).cuda()
+            boxes = data['boxes'] if data['boxes'] is None else torch.from_numpy(data['boxes']).to(DEVICE)
 
         optimizer.zero_grad()
 
         if not sc_flag:
             if opt.use_box:
-                loss = crit(dp_model(sg_data, att_feats, boxes, labels, att_masks), labels[:,1:], masks[:,1:])
+                loss = crit(model(sg_data, att_feats, boxes, labels, att_masks), labels[:,1:], masks[:,1:])
             else:
-                loss = crit(dp_model(sg_data, att_feats, labels, att_masks), labels[:,1:], masks[:,1:])
+                loss = crit(model(sg_data, att_feats, labels, att_masks), labels[:,1:], masks[:,1:])
         else:
             if opt.use_box:
-                gen_result, sample_logprobs, core_args  = dp_model(sg_data, att_feats, boxes, att_masks, opt={'sample_max':0, 'return_core_args': True, 'expand_features': True}, mode='sample')
-                reward = get_self_critical_reward(dp_model, core_args, sg_data, att_feats, boxes, att_masks, data, gen_result, opt)
+                gen_result, sample_logprobs, core_args  = model(sg_data, att_feats, boxes, att_masks, opt={'sample_max':0, 'return_core_args': True, 'expand_features': True}, mode='sample')
+                reward = get_self_critical_reward(model, core_args, sg_data, att_feats, boxes, att_masks, data, gen_result, opt)
             else:
-                gen_result, sample_logprobs, core_args= dp_model(sg_data, att_feats, att_masks, opt={'sample_max':0, 'return_core_args': True, 'expand_features': True}, mode='sample')
-                reward = get_self_critical_reward(dp_model, core_args, sg_data, att_feats, None, att_masks, data, gen_result, opt)
+                gen_result, sample_logprobs, core_args= model(sg_data, att_feats, att_masks, opt={'sample_max':0, 'return_core_args': True, 'expand_features': True}, mode='sample')
+                reward = get_self_critical_reward(model, core_args, sg_data, att_feats, None, att_masks, data, gen_result, opt)
 
-            loss = rl_crit(sample_logprobs, gen_result.data, torch.from_numpy(reward).float().cuda())
+            loss = rl_crit(sample_logprobs, gen_result.data, torch.from_numpy(reward).float().to(DEVICE))
 
         loss.backward()
         utils.clip_gradient(optimizer, opt.grad_clip)
@@ -180,15 +182,10 @@ def train(opt):
 
         # Write the training loss summary
         if (iteration % opt.losses_log_every == 0):
-            add_summary_value(tb_summary_writer, 'train_loss', train_loss, iteration)
             if opt.noamopt:
                 opt.current_lr = optimizer.rate()
             elif opt.reduce_on_plateau:
                 opt.current_lr = optimizer.current_lr
-            add_summary_value(tb_summary_writer, 'learning_rate', opt.current_lr, iteration)
-            add_summary_value(tb_summary_writer, 'scheduled_sampling_prob', model.ss_prob, iteration)
-            if sc_flag:
-                add_summary_value(tb_summary_writer, 'avg_reward', np.mean(reward[:,0]), iteration)
 
             loss_history[iteration] = train_loss if not sc_flag else np.mean(reward[:,0])
             lr_history[iteration] = opt.current_lr
@@ -202,7 +199,7 @@ def train(opt):
                             'expand_features': False,
                             'use_box': opt.use_box}
             eval_kwargs.update(vars(opt))
-            val_loss, predictions, lang_stats = eval_utils.eval_split(dp_model, crit, loader, eval_kwargs)
+            val_loss, predictions, lang_stats = eval_utils.eval_split(model, crit, loader, eval_kwargs)
 
             if opt.reduce_on_plateau:
                 if 'CIDEr' in lang_stats:
@@ -211,10 +208,6 @@ def train(opt):
                     optimizer.scheduler_step(val_loss)
 
             # Write validation result into summary
-            add_summary_value(tb_summary_writer, 'validation loss', val_loss, iteration)
-            if lang_stats:
-                for k,v in lang_stats.items():
-                    add_summary_value(tb_summary_writer, k, v, iteration)
             val_result_history[iteration] = {'loss': val_loss, 'lang_stats': lang_stats, 'predictions': predictions}
 
             # Save model if is improving on validation result
@@ -231,10 +224,10 @@ def train(opt):
 
                 if not os.path.isdir(opt.checkpoint_path):
                     os.makedirs(opt.checkpoint_path)
-                checkpoint_path = os.path.join(opt.checkpoint_path, 'model.pth')
+                checkpoint_path = os.path.join(opt.checkpoint_path, opt.MODEL_FILE_NAME)
                 torch.save(model.state_dict(), checkpoint_path)
-                print("model saved to {}".format(checkpoint_path))
-                optimizer_path = os.path.join(opt.checkpoint_path, 'optimizer.pth')
+                logging.info("model saved to {}".format(checkpoint_path))
+                optimizer_path = os.path.join(opt.checkpoint_path, opt.OPTIMISER_FILE_NAME)
                 torch.save(optimizer.state_dict(), optimizer_path)
 
                 # Dump miscalleous informations
@@ -250,16 +243,17 @@ def train(opt):
                 histories['loss_history'] = loss_history
                 histories['lr_history'] = lr_history
                 histories['ss_prob_history'] = ss_prob_history
-                with open(os.path.join(opt.checkpoint_path, 'infos_'+opt.id+'.pkl'), 'wb') as f:
+
+                with open(os.path.join(opt.checkpoint_path, opt.INFOS_FILE_NAME), 'wb') as f:
                     cPickle.dump(infos, f)
-                with open(os.path.join(opt.checkpoint_path, 'histories_'+opt.id+'.pkl'), 'wb') as f:
+                with open(os.path.join(opt.checkpoint_path, opt.HISTORIES_FILE_NAME), 'wb') as f:
                     cPickle.dump(histories, f)
 
                 if best_flag:
-                    checkpoint_path = os.path.join(opt.checkpoint_path, 'model-best.pth')
+                    checkpoint_path = os.path.join(opt.checkpoint_path, opt.BEST_MODEL_FILE_NAME)
                     torch.save(model.state_dict(), checkpoint_path)
-                    print("model saved to {}".format(checkpoint_path))
-                    with open(os.path.join(opt.checkpoint_path, 'infos_'+opt.id+'-best.pkl'), 'wb') as f:
+                    logging.info("model saved to {}".format(checkpoint_path))
+                    with open(os.path.join(opt.checkpoint_path, opt.BEST_INFOS_FILE_NAME), 'wb') as f:
                         cPickle.dump(infos, f)
 
         # Stop if reaching max epochs

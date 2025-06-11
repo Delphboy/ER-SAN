@@ -7,6 +7,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+from re import sub
 
 import torch
 import torch.nn as nn
@@ -17,8 +18,8 @@ import copy
 import math
 import numpy as np
 
-from .CaptionModel import CaptionModel
-from .AttModel import sort_pack_padded_sequence, pad_unsort_packed_sequence, pack_wrapper
+from models.CaptionModel import CaptionModel
+from models.AttModel import sort_pack_padded_sequence, pad_unsort_packed_sequence, pack_wrapper
 from misc.utils import expand_feats
 from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 
@@ -147,7 +148,8 @@ def subsequent_mask(size):
     "Mask out subsequent positions."
     attn_shape = (1, size, size)
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
-    return torch.from_numpy(subsequent_mask) == 0
+    return_val = torch.from_numpy(subsequent_mask) == 0
+    return return_val
 
 def attention(query, key, value, mask=None, dropout=None):
     "Compute 'Scaled Dot Product Attention'"
@@ -309,48 +311,6 @@ def relative_attention_logits(query, key, relation, boxes, linear_structure):
     return ((qk_matmul + q_tr_tmatmul_t + key_tr_tmatmul_t + q_boxes_t_matmul + q_structure_t_matmul) / math.sqrt(query.shape[-1]))
 
 
-def relative_attention_values(weight, value, relation, boxes):
-    # In this version, relation vectors are shared across heads.
-    # weight: [batch, heads, num queries, num kvs].
-    # value: [batch, heads, num kvs, depth].
-    # relation: [batch, num queries, num kvs, depth].
-
-    # wv_matmul is [batch, heads, num queries, depth]
-    wv_matmul = torch.matmul(weight, value)
-
-    # w_t is [batch, num queries, heads, num kvs]
-    w_t = weight.permute(0, 2, 1, 3)
-
-    #   [batch, num queries, heads, num kvs]
-    # * [batch, num queries, num kvs, depth]
-    # = [batch, num queries, heads, depth]
-    w_tr_matmul = torch.matmul(w_t, relation)
-
-    # w_tr_matmul_t is [batch, heads, num queries, depth]
-    w_tr_matmul_t = w_tr_matmul.permute(0, 2, 1, 3)
-
-    w_boxes_matmul = torch.matmul(w_t, boxes)
-    w_boxes_matmul_t = w_boxes_matmul.permute(0, 2, 1, 3)
-    # Gating Mechanism
-    f = torch.cat((wv_matmul, w_tr_matmul_t, w_boxes_matmul_t), dim=-1)
-    tr = torch.sigmoid(self.Value_weight(f))
-    tr_wgt = tr[:, :, :, 0].unsqueeze(-1)
-    boxs_wgt = tr[:, :, :, 1].unsqueeze(-1)
-
-    return wv_matmul + tr_wgt * w_tr_matmul_t + boxs_wgt * w_boxes_matmul_t
-
-# Adapted from The Annotated Transformer
-def attention_with_relations(query, key, value, relation_k, relation_v, boxes, linear_structure, mask=None, dropout=None):
-    "Compute 'Scaled Dot Product Attention'"
-    d_k = query.size(-1)
-    scores = relative_attention_logits(query, key, relation_k, boxes, linear_structure)
-    if mask is not None:
-        scores = scores.masked_fill(mask == 0, -1e9)
-    p_attn_orig = F.softmax(scores, dim = -1)
-    if dropout is not None:
-        p_attn = dropout(p_attn_orig)
-    return relative_attention_values(p_attn, value, relation_v, boxes), p_attn_orig
-
 class MultiHeadedAttentionWithRelations(nn.Module):
     def __init__(self, h, d_model, semantic_embedding_size, geometry_embedding_size, structure_embedding_size, dropout=0.1):
         "Take in model size and number of heads."
@@ -377,6 +337,50 @@ class MultiHeadedAttentionWithRelations(nn.Module):
         self.linears_boxes = nn.Sequential(nn.Linear(self.geometry_embedding_size, self.d_k),
                                     nn.ReLU(),
                                     nn.Dropout(0.1))
+        self.Value_weight = nn.Linear(3 * 64, 2)
+
+    def relative_attention_values(self, weight, value, relation, boxes):
+        # In this version, relation vectors are shared across heads.
+        # weight: [batch, heads, num queries, num kvs].
+        # value: [batch, heads, num kvs, depth].
+        # relation: [batch, num queries, num kvs, depth].
+
+        # wv_matmul is [batch, heads, num queries, depth]
+        wv_matmul = torch.matmul(weight, value)
+
+        # w_t is [batch, num queries, heads, num kvs]
+        w_t = weight.permute(0, 2, 1, 3)
+
+        #   [batch, num queries, heads, num kvs]
+        # * [batch, num queries, num kvs, depth]
+        # = [batch, num queries, heads, depth]
+        w_tr_matmul = torch.matmul(w_t, relation)
+
+        # w_tr_matmul_t is [batch, heads, num queries, depth]
+        w_tr_matmul_t = w_tr_matmul.permute(0, 2, 1, 3)
+
+        w_boxes_matmul = torch.matmul(w_t, boxes)
+        w_boxes_matmul_t = w_boxes_matmul.permute(0, 2, 1, 3)
+        # Gating Mechanism
+        f = torch.cat((wv_matmul, w_tr_matmul_t, w_boxes_matmul_t), dim=-1)
+
+        tr = torch.sigmoid(self.Value_weight(f))
+        tr_wgt = tr[:, :, :, 0].unsqueeze(-1)
+        boxs_wgt = tr[:, :, :, 1].unsqueeze(-1)
+
+        return wv_matmul + tr_wgt * w_tr_matmul_t + boxs_wgt * w_boxes_matmul_t
+
+    # Adapted from The Annotated Transformer
+    def attention_with_relations(self, query, key, value, relation_k, relation_v, boxes, linear_structure, mask=None, dropout=None):
+        "Compute 'Scaled Dot Product Attention'"
+        d_k = query.size(-1)
+        scores = relative_attention_logits(query, key, relation_k, boxes, linear_structure)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1e9)
+        p_attn_orig = F.softmax(scores, dim = -1)
+        if dropout is not None:
+            p_attn = dropout(p_attn_orig)
+        return self.relative_attention_values(p_attn, value, relation_v, boxes), p_attn_orig
 
     def forward(self, query, key, value, boxes, edge_mask, rela_labels_mask, mask=None):
         # query shape: [batch, num queries, d_model]
@@ -405,7 +409,7 @@ class MultiHeadedAttentionWithRelations(nn.Module):
 
         # 2) Apply attention on all the projected vectors in batch.
         # x shape: [batch, heads, num queries, depth]
-        x, self.attn = attention_with_relations(
+        x, self.attn = self.attention_with_relations(
             query,
             key,
             value,
@@ -466,7 +470,7 @@ class PositionalEncoding(nn.Module):
 
 def sort_pack_padded_sequence(input, lengths):
     sorted_lengths, indices = torch.sort(lengths, descending=True)
-    tmp = pack_padded_sequence(input[indices], sorted_lengths, batch_first=True)
+    tmp = pack_padded_sequence(input[indices], sorted_lengths.cpu(), batch_first=True)
     inv_ix = indices.clone()
     inv_ix[indices] = torch.arange(0,len(indices)).type_as(inv_ix)
     return tmp, inv_ix
@@ -489,7 +493,7 @@ def build_embeding_layer(vocab_size, dim, drop_prob):
                           nn.Dropout(drop_prob))
     return embed
 
-class TransformerModel_Triplet(CaptionModel):
+class VGCap(CaptionModel):
 
     def make_model(self, src_vocab, tgt_vocab, N=6,
                d_model=512, d_ff=2048, semantic_embedding_size=256,
@@ -518,7 +522,7 @@ class TransformerModel_Triplet(CaptionModel):
         return model
 
     def __init__(self, opt):
-        super(TransformerModel_Triplet, self).__init__()
+        super(VGCap, self).__init__()
         self.opt = opt
         # self.config = yaml.load(open(opt.config_file))
        # d_model = self.input_encoding_size # 512
@@ -543,6 +547,8 @@ class TransformerModel_Triplet(CaptionModel):
         self.seq_per_img = opt.seq_per_img
         self.use_bn = getattr(opt, 'use_bn', 0)
         self.ss_prob = 0.0 # Schedule sampling probability
+        self.max_shortest_path_distance = 101 # NOTE: Unreachable nodes are set to 101 in shortest_path_distance.pyx
+        self.MAX_EMBED_ID = 9501
 
         self.att_embed = nn.Sequential(*(
                                     ((nn.BatchNorm1d(self.att_feat_size),) if self.use_bn else ())+
@@ -550,9 +556,9 @@ class TransformerModel_Triplet(CaptionModel):
                                    nn.ReLU(),
                                     nn.Dropout(self.drop_prob_lm))+
                                     ((nn.BatchNorm1d(self.input_encoding_size),) if self.use_bn==2 else ())))
-        self.embed_rela = build_embeding_layer(self.vocab_size + 1, self.semantic_embedding_size, self.drop_prob_lm)
+        self.embed_rela = build_embeding_layer(self.MAX_EMBED_ID + 1, self.semantic_embedding_size, self.drop_prob_lm)
         self.embed_structure  = build_embeding_layer(2*self.max_shortest_path_distance + 1, self.structure_embedding_size, self.drop_prob_lm)
-        self.embed_weak_rela = build_embeding_layer(self.vocab_size + 1, self.input_encoding_size, self.drop_prob_lm)
+        self.embed_weak_rela = build_embeding_layer(self.MAX_EMBED_ID + 1, self.input_encoding_size, self.drop_prob_lm)
 
         self.init_weights()
 
@@ -572,12 +578,31 @@ class TransformerModel_Triplet(CaptionModel):
 
     def prepare_esr_features(self, sg_data, att_feats):
         rela_labels_mask = sg_data['rela_labels_mask']
-        rela_labels_mask = self.embed_rela(rela_labels_mask)
+
+        try: 
+            rela_labels_mask = self.embed_rela(rela_labels_mask)
+        except Exception as e:
+            print(e)
+            print(rela_labels_mask)
+            print("\n\n\n\n")
+            assert False
+
         edge_mask = sg_data['obj_dis']
         edge_mask = self.embed_structure(edge_mask)
         weak_rela = sg_data['verb_labels']
         weak_rela_mask = weak_rela > 0
-        weak_rela = self.embed_weak_rela(weak_rela)
+        
+        try:
+            weak_rela = self.embed_weak_rela(weak_rela)
+        except Exception as e:
+            print(e)
+            print(weak_rela)
+            print("\n\n\n\n")
+            assert False
+
+        
+
+
         return  rela_labels_mask, att_feats, edge_mask, weak_rela, weak_rela_mask
 
 
@@ -594,6 +619,7 @@ class TransformerModel_Triplet(CaptionModel):
             seq_mask[:,0] = 1
 
             seq_mask = seq_mask.unsqueeze(-2)
+            _tmp = subsequent_mask(seq.size(-1))#.to(seq_mask)
             seq_mask = seq_mask & subsequent_mask(seq.size(-1)).to(seq_mask)
         else:
             seq_mask = None

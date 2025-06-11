@@ -15,17 +15,18 @@ import torch.utils.data as data
 import misc.utils as utils
 import pickle
 
-import pyximport
+
+from pyximport import pyximport
 pyximport.install(setup_args={'include_dirs': np.get_include()})
-import shortest_path_distance as shortest_path_distance
+import vgcap.shortest_path_distance as shortest_path_distance
 
 import multiprocessing
 
-class DataLoader(data.Dataset):
+class VgDataLoader(data.Dataset):
 
     def reset_iterator(self, split):
         del self._prefetch_process[split]
-        self._prefetch_process[split] = BlobFetcher(split, self, split == 'train', self.opt.loader_num_workers,
+        self._prefetch_process[split] = VgBlobFetcher(split, self, split == 'train', self.opt.loader_num_workers,
                                                     self.opt)
         self.iterators[split] = 0
 
@@ -105,7 +106,7 @@ class DataLoader(data.Dataset):
 
         self._prefetch_process = {}  # The three prefetch process
         for split in self.iterators.keys():
-            self._prefetch_process[split] = BlobFetcher(split, self, split == 'train', self.opt.loader_num_workers,
+            self._prefetch_process[split] = VgBlobFetcher(split, self, split == 'train', self.opt.loader_num_workers,
                                                         self.opt)
             # Terminate the child process when the parent exists
 
@@ -289,7 +290,8 @@ class DataLoader(data.Dataset):
         SparseMaskDiff = sg_data['geometry_rela_sparse_mask'] - (sg_data['rela_sparse_mask'] + sg_data['rela_sparse_mask'].transpose(0,2,1))
         SparseMaskDiff = np.where(SparseMaskDiff > 0, 1, 0)
         sg_data['hybrid_rela_sparse_mask'] = np.bitwise_or(sg_data['rela_sparse_mask'], SparseMaskDiff)
-        rela_shortest_dis = shortest_path_distance.floyd_warshall(hybrid_rela_sparse_mask, sg_data['hybrid_rela_sparse_mask'])
+        # rela_shortest_dis = shortest_path_distance.floyd_warshall(hybrid_rela_sparse_mask, sg_data['hybrid_rela_sparse_mask']) # NOTE: Original
+        rela_shortest_dis = shortest_path_distance.floyd_warshall(sg_data['hybrid_rela_sparse_mask'], sg_data['hybrid_rela_sparse_mask'])
         sg_data['obj_dis'] = rela_shortest_dis
         return sg_data
 
@@ -333,7 +335,7 @@ class DataLoader(data.Dataset):
 
     def get_graph_data(self, index):
         image_id = str(self.info['images'][index]['id'])
-        sg_use = np.load(self.sg_data_dir + image_id + '.npz'
+        sg_use = np.load(self.sg_data_dir + image_id + '.npz')
         geometry_path = os.path.join(self.sg_geometry_dir, image_id + '.npy')
         rela_geometry = np.load(geometry_path, encoding="latin1", allow_pickle=True)[
             ()]  # dict contains keys of edges and feats
@@ -359,7 +361,7 @@ class DataLoader(data.Dataset):
         return len(self.info['images'])
 
 
-class SubsetSampler(torch.utils.data.sampler.Sampler):
+class VgSubsetSampler(torch.utils.data.sampler.Sampler):
     r"""Samples elements randomly from a given list of indices, without replacement.
     Arguments:
         indices (list): a list of indices
@@ -375,7 +377,7 @@ class SubsetSampler(torch.utils.data.sampler.Sampler):
         return len(self.indices)
 
 
-class BlobFetcher():
+class VgBlobFetcher():
     """Experimental class for prefetching blobs in a separate process."""
 
     def __init__(self, split, dataloader, if_shuffle=False, num_workers=0, opt=None):
@@ -398,7 +400,7 @@ class BlobFetcher():
         # batch_size is 1, the merge is done in DataLoader class
         self.split_loader = iter(data.DataLoader(dataset=self.dataloader,
                                                  batch_size=1,
-                                                 sampler=SubsetSampler(self.dataloader.split_ix[self.split][
+                                                 sampler=VgSubsetSampler(self.dataloader.split_ix[self.split][
                                                                        self.dataloader.iterators[self.split]:]),
                                                  shuffle=False,
                                                  pin_memory=True,
@@ -427,7 +429,7 @@ class BlobFetcher():
             self.reset()
 
         ix, wrapped = self._get_next_minibatch_inds()
-        tmp = self.split_loader.next()
+        tmp = next(self.split_loader)
         if wrapped:
             self.reset()
 

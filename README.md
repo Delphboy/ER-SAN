@@ -3,6 +3,12 @@ We have realeased our main code of recent work [VG-Cap](https://github.com/Cross
 - We exploit the novel visual graph topology to calculate the shortest path distance between two objects as the inductive structure-aware relation bias, which explicitly improves the structural relations between object regions.
 - We propose a novel semantic fusion prediction module that selectively focuses on contextual visual and semantic relation features to generate accurate semantic words.
 
+
+```bash
+git clone --recurse-submodules git@github.com:Delphboy/ER-SAN.git
+
+```
+
 ## Contents
 1. [Introduction](#Introduction)
 2. [Model Evaluation](#Model-Evaluation)

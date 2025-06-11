@@ -12,6 +12,7 @@ from six.moves import cPickle
 import opts
 import models
 from dataloader import *
+from vgcap.dataloader import *
 from dataloaderraw import *
 import argparse
 import misc.utils as utils
@@ -169,7 +170,10 @@ crit = utils.LanguageModelCriterion()
 
 # Create the Data Loader instance
 if len(opt.image_folder) == 0:
-  loader = DataLoader(opt)
+  if opt.caption_model == "vgcap":
+    loader = VgDataLoader(opt)
+  else:
+    loader = DataLoader(opt)
 else:
   loader = DataLoaderRaw({'folder_path': opt.image_folder,
                             'coco_json': opt.coco_json,

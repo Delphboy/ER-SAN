@@ -167,8 +167,19 @@ def parse_opt():
     #Relative geometry settings
     parser.add_argument("--box_trignometric_embedding", type=str2bool,
                         default=True)
+    parser.add_argument("--semantic_embedding_size", type=int, default=512)
+    parser.add_argument("--geometry_embedding_size", type=int, default=512)
+    parser.add_argument("--structure_embedding_size", type=int, default=512)
 
     args = parser.parse_args()
+
+    # Set save/load values
+    args.MODEL_FILE_NAME = f"model-{args.id}.pth"
+    args.OPTIMISER_FILE_NAME = f"optimiser-{args.id}.pth"
+    args.BEST_MODEL_FILE_NAME = f"model-{args.id}-best.pth"
+    args.HISTORIES_FILE_NAME = f"histories_{args.id}.pkl"
+    args.INFOS_FILE_NAME = f"infos_{args.id}.pkl"
+    args.BEST_INFOS_FILE_NAME = f"infos_{args.id}-best.pkl"
 
     # Check if args are valid
     assert args.rnn_size > 0, "rnn_size should be greater than 0"

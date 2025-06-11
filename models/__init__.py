@@ -16,6 +16,7 @@ from .AttModel import *
 from .TransformerModel import TransformerModel
 from .RelationTransformerModel import RelationTransformerModel
 from .TripletTransformerModel import TransformerModel_Triplet
+from vgcap.VGCap import VGCap
 
 def setup(opt):
 
@@ -55,6 +56,8 @@ def setup(opt):
     # Our model
     elif opt.caption_model == 'transformer_triplet':
         model = TransformerModel_Triplet(opt)
+    elif opt.caption_model == 'vgcap':
+        model = VGCap(opt)
     else:
         raise Exception("Caption model not supported: {}".format(opt.caption_model))
 
