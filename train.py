@@ -29,7 +29,7 @@ def setup_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-    print('seed set:', seed)
+    logging.info('seed set:', seed)
 
 def add_summary_value(writer, key, value, iteration):
     if writer:
@@ -130,7 +130,6 @@ def train(opt):
         start = time.time()
         # Load data from train split (0)
         data = loader.get_batch('train')
-        print('Read data:', time.time() - start)
 
         torch.cuda.synchronize()
         start = time.time()
@@ -168,10 +167,10 @@ def train(opt):
         torch.cuda.synchronize()
         end = time.time()
         if not sc_flag:
-            print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
+            logging.info("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
                 .format(iteration, epoch, train_loss, end - start))
         else:
-            print("iter {} (epoch {}), avg_reward = {:.3f}, time/batch = {:.3f}" \
+            logging.info("iter {} (epoch {}), avg_reward = {:.3f}, time/batch = {:.3f}" \
                 .format(iteration, epoch, np.mean(reward[:,0]), end - start))
 
         # Update the iteration and epoch
