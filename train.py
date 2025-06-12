@@ -29,7 +29,7 @@ def setup_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-    logging.info('seed set:', seed)
+    logging.info(f'seed set: {seed}')
 
 def add_summary_value(writer, key, value, iteration):
     if writer:

@@ -337,8 +337,7 @@ class VgDataLoader(data.Dataset):
         image_id = str(self.info['images'][index]['id'])
         sg_use = np.load(self.sg_data_dir + image_id + '.npz')
         geometry_path = os.path.join(self.sg_geometry_dir, image_id + '.npy')
-        rela_geometry = np.load(geometry_path, encoding="latin1", allow_pickle=True)[
-            ()]  # dict contains keys of edges and feats
+        rela_geometry = np.load(geometry_path, encoding="latin1", allow_pickle=True)[()]  # dict contains keys of edges and feats
 
         # if the relation of an image is empty, then fill in it with <0, 0, 'near'> to avoid problems
         if sg_use['prela'].shape[0] == 0:
@@ -346,7 +345,7 @@ class VgDataLoader(data.Dataset):
         else:
             triplet_p = sg_use['prela']
 
-            # shape (Nr, 3), column index 0,1 is edge, index 2 is relation label
+        # shape (Nr, 3), column index 0,1 is edge, index 2 is relation label
         triplet_w = sg_use['wrela']
         rela = {}
         rela['edges'] = np.vstack([triplet_p[:, :2], triplet_w[:, :2]])

@@ -570,6 +570,7 @@ class VGCap(CaptionModel):
             semantic_embedding_size = self.semantic_embedding_size,
             geometry_embedding_size = self.geometry_embedding_size,
             structure_embedding_size = self.structure_embedding_size)
+
     def init_weights(self):
         initrange = 0.1
         self.embed_rela[0].weight.data.uniform_(-initrange, initrange)
@@ -579,32 +580,16 @@ class VGCap(CaptionModel):
     def prepare_esr_features(self, sg_data, att_feats):
         rela_labels_mask = sg_data['rela_labels_mask']
 
-        try: 
-            rela_labels_mask = self.embed_rela(rela_labels_mask)
-        except Exception as e:
-            print(e)
-            print(rela_labels_mask)
-            print("\n\n\n\n")
-            assert False
+        rela_labels_mask = self.embed_rela(rela_labels_mask)
 
         edge_mask = sg_data['obj_dis']
         edge_mask = self.embed_structure(edge_mask)
         weak_rela = sg_data['verb_labels']
         weak_rela_mask = weak_rela > 0
-        
-        try:
-            weak_rela = self.embed_weak_rela(weak_rela)
-        except Exception as e:
-            print(e)
-            print(weak_rela)
-            print("\n\n\n\n")
-            assert False
 
-        
-
+        weak_rela = self.embed_weak_rela(weak_rela)
 
         return  rela_labels_mask, att_feats, edge_mask, weak_rela, weak_rela_mask
-
 
     def prepare_core_args(self, sg_data, att_feats, att_masks, boxes, seq=None ):
         att_feats, att_masks = self.clip_att(att_feats, att_masks)
