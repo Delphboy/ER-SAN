@@ -86,7 +86,7 @@ def train(opt):
     rl_crit = utils.RewardCriterion()
 
     if opt.noamopt:
-        assert opt.caption_model == 'transformer'  or opt.caption_model == 'transformer_triplet' or opt.caption_model == 'relation_transformer', 'noamopt can only work with transformer'
+        assert opt.caption_model == 'transformer'  or opt.caption_model == 'transformer_triplet' or opt.caption_model == 'relation_transformer' or opt.caption_model == 'vgcap', 'noamopt can only work with transformer'
         optimizer = utils.get_std_opt(model, factor=opt.noamopt_factor, warmup=opt.noamopt_warmup)
         optimizer._step = iteration
     elif opt.reduce_on_plateau:

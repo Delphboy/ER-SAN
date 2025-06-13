@@ -23,47 +23,48 @@ module load openjdk/1.8.0_265-b01-gcc-12.2.0
 source .venv/bin/activate
 
 model_type="vgcap"
-model_name="ERSAN-${model_type}"
+model_name="ours-ERSAN-${model_type}"
 checkpoint_location="/data/scratch/eey362/ER-SAN/"
 
-#python3 train.py --id "${model_name}" \
-#	--caption_model "${model_type}" \
-#	--checkpoint_path "${checkpoint_location}" \
-#	--input_json "/data/EECS-YuanLab/COCO/cocotalk.json" \
-#	--input_fc_dir "/data/EECS-YuanLab/COCO/butd_fc/" \
-#	--input_att_dir "/data/EECS-YuanLab/COCO/butd_att/" \
-#	--input_box_dir "/data/EECS-YuanLab/COCO/butd_box/" \
-#	--sg_vocab_path "/data/EECS-YuanLab/COCO/coco_pred_sg_rela.npy" \
-#	--sg_data_dir "/data/EECS-YuanLab/COCO/coco_cmb_vrg_final/" \
- #   	--sg_geometry_dir "/data/EECS-YuanLab/COCO/geometry-iou-iou0.2-dist0.5-undirected" \
-  #  	--input_rel_box_dir "/data/EECS-YuanLab/COCO/cocobu_box_relative/" \
-#	--input_label_h5 "/data/EECS-YuanLab/COCO/cocotalk_label.h5" \
-#	--label_smoothing 0.2 \
-#	--batch_size 10 \
-#	--loader_num_workers 4 \
-#	--learning_rate 3e-4 \
-#	--num_layers 4 \
-#	--input_encoding_size 512 \
-#	--rnn_size 2048 \
-#	--learning_rate_decay_start 3 \
-#	--learning_rate_decay_rate 0.5 \
-#	--scheduled_sampling_start 0 \
-#	--save_checkpoint_every 10000 \
-#	--language_eval 1 \
-#	--val_images_use 5000 \
-#	--max_epochs 18 \
-#	--noamopt_warmup 33000 \
-#	--use_box 1 \
-#	--sg_label_embed_size 512 \
-#	--semantic_embedding_size 512 \
- #   	--geometry_embedding_size 512 \
-  #  	--structure_embedding_size 512 \
-#	--seq_per_img 5 \
-#	--use_warmup \
-#	--cached_tokens "/data/EECS-YuanLab/COCO/coco-train-idxs" \
+python3 train.py --id "${model_name}" \
+	--caption_model "${model_type}" \
+	--checkpoint_path "${checkpoint_location}" \
+	--input_json "/data/EECS-YuanLab/COCO/cocotalk.json" \
+	--input_fc_dir "/data/EECS-YuanLab/COCO/butd_fc/" \
+	--input_att_dir "/data/EECS-YuanLab/COCO/butd_att/" \
+	--input_box_dir "/data/EECS-YuanLab/COCO/butd_box/" \
+	--sg_vocab_path "/data/EECS-YuanLab/COCO/coco_pred_sg_rela.npy" \
+	--sg_data_dir "/data/EECS-YuanLab/COCO/coco_cmb_vrg_final/" \
+    	--sg_geometry_dir "/data/EECS-YuanLab/COCO/geometry-iou-iou0.2-dist0.5-undirected" \
+    	--input_rel_box_dir "/data/EECS-YuanLab/COCO/cocobu_box_relative/" \
+	--input_label_h5 "/data/EECS-YuanLab/COCO/cocotalk_label.h5" \
+	--cached_tokens "/data/EECS-YuanLab/COCO/coco-train-idxs" \
+	--label_smoothing 0.0 \
+	--batch_size 16 \
+	--loader_num_workers 4 \
+	--learning_rate 5e-4 \
+	--num_layers 4 \
+	--input_encoding_size 512 \
+	--rnn_size 2048 \
+	--learning_rate_decay_start 0 \
+	--learning_rate_decay_rate 0.5 \
+	--scheduled_sampling_start 0 \
+	--save_checkpoint_every 10000 \
+	--language_eval 1 \
+	--val_images_use 5000 \
+	--max_epochs 30 \
+	--noamopt \
+	--noamopt_warmup 10000 \
+	--use_box 1 \
+	--sg_label_embed_size 512 \
+	--semantic_embedding_size 512 \
+    	--geometry_embedding_size 512 \
+    	--structure_embedding_size 512 \
+	--seq_per_img 5 \
+	--use_warmup \
 
 # Copy model for SCST
-# bash scripts/copy_model.sh "${checkpoint_location}" "${model_name}" "${model_name}_rl"
+bash scripts/copy_model.sh "${checkpoint_location}" "${model_name}" "${model_name}_rl"
 
 python3 train.py --id "${model_name}_rl" \
 	--caption_model "${model_type}" \
@@ -80,22 +81,22 @@ python3 train.py --id "${model_name}_rl" \
 	--input_label_h5 "/data/EECS-YuanLab/COCO/cocotalk_label.h5" \
 	--label_smoothing 0.0 \
 	--batch_size 16 \
-	--learning_rate 5e-6 \
+	--learning_rate 5e-4 \
 	--num_layers 4 \
 	--input_encoding_size 512 \
 	--rnn_size 2048 \
 	--scheduled_sampling_start 0 \
-	--save_checkpoint_every 3000 \
+	--save_checkpoint_every 6000 \
 	--language_eval 1 \
 	--val_images_use 5000 \
-	--self_critical_after 18 \
-	--max_epochs 58 \
+	--self_critical_after 30 \
+	--max_epochs 60 \
 	--loader_num_workers 4 \
 	--sg_label_embed_size 512 \
 	--seq_per_img 5 \
 	--use_box 1 \
 	--cached_tokens "/data/EECS-YuanLab/COCO/coco-train-idxs" \
-	--learning_rate_decay_start 17  \
+	--learning_rate_decay_start 0  \
 	--learning_rate_decay_rate 0.8  \
 
 
